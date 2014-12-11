@@ -15,13 +15,14 @@ module BmapLbs
 
     #get table details
     def table_details(hash={})
-      params = hash.merge(base_configure)
+      params = hash.merge(base_configure).symbolize_keys
       check_value_exist(params, [:ak, :geotable_id])
-      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/list", params)
+      params = params.transform_keys { |key| key == :geotable_id ? 'id':key}
+      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/geotable/detail", params)
     end
 
     # show all column details in a geotable
-    def detail_columns(hash={})
+    def columns_details(hash={})
       params = hash.merge(base_configure)
       check_value_exist(params, [:ak, :geotable_id])
       @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/list", params)
@@ -29,7 +30,7 @@ module BmapLbs
     end
 
     # show a geotable column details
-    def detail_column(hash)
+    def column_details(hash)
       params = hash.merge(base_configure)
       check_value_exist(params, [:ak, :geotable_id, :id])
       @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/detail", params)
@@ -52,24 +53,15 @@ module BmapLbs
       return @res[:pois]
     end
 
-    #update a poi attributes
-    def update_poi(hash)
-      params = hash.merge(base_configure)
-      check_value_exist(params, [:ak, :geotable_id])
-      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/update", params)
-      return @res[:status].to_i.eql? 0
-    end
-
-    #delete a poi
-    def delete_poi(hash)
-      params = hash.merge(base_configure)
-      check_value_exist(params, [:ak, :geotable_id])
-      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/delete", params)
-      return @res[:status].to_i.eql? 0
-    end
-
-    #operate poi,raise error if faild
+    #operate poi,with ! will raise error if faild
     [:delete, :create, :update].each do |i|
+      define_method("#{i}_poi") do |hash|
+        params = hash.merge(base_configure)
+        check_value_exist(params, [:ak, :geotable_id])
+        @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/#{i}", params)
+        return @res[:status].to_i.eql? 0
+      end
+
       define_method("#{i}_poi!") do |hash|
         result = send("#{i}_poi", hash)
         unless result
@@ -77,14 +69,6 @@ module BmapLbs
         end
         true
       end
-    end
-
-    #create poi
-    def create_poi(hash)
-      params = hash.merge(base_configure)
-      check_value_exist(params, [:ak, :geotable_id])
-      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/create", params)
-      return @res[:status].to_i.eql? 0
     end
 
     private

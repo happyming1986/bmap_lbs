@@ -1,8 +1,10 @@
 require "bmap_lbs/version"
-
 module BmapLbs
   module Configure
-    cattr_accessor :ak, :sn, :geotable_id, :coord_type, instance_writer: false, instance_reader: false
+    cattr_accessor :ak, :sn, :geotable_id, :coord_type, :exception_handle, instance_writer: false, instance_reader: false
+  end
+
+  class BmapLbsCommunicateFailure < StandardError
   end
 
   def self.setup(&block)
@@ -10,12 +12,79 @@ module BmapLbs
   end
 
   class << self
-    def create(hash)
+
+    #get table details
+    def table_details(hash={})
       params = hash.merge(base_configure)
-      url =  URI("http://api.map.baidu.com/geodata/v3/poi/create")
-      res = Net::HTTP.post_form(url, params)
-      Rails.logger.info res.body
-      return JSON.parse(res.body)['status'] == 0
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/list", params)
+    end
+
+    # show all column details in a geotable
+    def detail_columns(hash={})
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/list", params)
+      return @res[:columns]
+    end
+
+    # show a geotable column details
+    def detail_column(hash)
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id, :id])
+      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/column/detail", params)
+      return @res[:column]
+    end
+
+    #update column attribute
+    def update_column(hash)
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id, :id])
+      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/column/update", params)
+      return @res[:status].to_i.eql? 0
+    end
+
+    #list poi on some conditions
+    def list_pois(hash={})
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:get, "http://api.map.baidu.com/geodata/v3/poi/list", params)
+      return @res[:pois]
+    end
+
+    #update a poi attributes
+    def update_poi(hash)
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/update", params)
+      return @res[:status].to_i.eql? 0
+    end
+
+    #delete a poi
+    def delete_poi(hash)
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/delete", params)
+      return @res[:status].to_i.eql? 0
+    end
+
+    #operate poi,raise error if faild
+    [:delete, :create, :update].each do |i|
+      define_method("#{i}_poi!") do |hash|
+        result = send("#{i}_poi", hash)
+        unless result
+          raise BmapLbsCommunicateFailure, "#{@res[:status]};#{@res[:message]}"
+        end
+        true
+      end
+    end
+
+    #create poi
+    def create_poi(hash)
+      params = hash.merge(base_configure)
+      check_value_exist(params, [:ak, :geotable_id])
+      @res = send_request(:post, "http://api.map.baidu.com/geodata/v3/poi/create", params)
+      return @res[:status].to_i.eql? 0
     end
 
     private
@@ -30,5 +99,35 @@ module BmapLbs
       end
       return @base_configure ||= block.call
     end
+
+    def check_value_exist(hash, array)
+      if hash.symbolize_keys.values_at(*array.map(&:to_sym)).include?(nil)
+        raise ArgumentError, 'lack of important key.'
+      end
+    end
+
+    def send_request(type, url, params)
+      begin
+        case type.to_sym
+          when :post
+            url =  URI(url)
+            res = Net::HTTP.post_form(url, params)
+          when :get
+            url = URI(url+'?'+params.to_query)
+            res = Net::HTTP.get_response(url)
+        end
+        hash = JSON.parse(res.body)
+        Rails.logger.info hash.inspect
+      rescue Exception => e
+        if Configure.exception_handle.present?
+          e.instance_eval(&Configure.exception_handle)
+        else
+          railse e
+        end
+      end
+      return hash.with_indifferent_access
+    end
+
   end
+
 end

@@ -1,7 +1,7 @@
 require "bmap_lbs/version"
 module BmapLbs
   module Configure
-    cattr_accessor :ak, :sn, :geotable_id, :coord_type, :exception_handle, instance_writer: false, instance_reader: false
+    cattr_accessor :ak, :sn, :geotable_id, :coord_type, :retry_times, :exception_handle, instance_writer: false, instance_reader: false
   end
 
   class BmapLbsCommunicateFailure < StandardError
@@ -76,7 +76,7 @@ module BmapLbs
     def base_configure
       block = -> do
         hash = {}
-        [:ak, :sn, :geotable_id].each do |i|
+        [:ak, :sn, :geotable_id, :coord_type].each do |i|
           hash[i] = Configure.send(i) if Configure.send(i).present?
         end
         return hash
@@ -91,6 +91,7 @@ module BmapLbs
     end
 
     def send_request(type, url, params)
+      retry_times = 0
       begin
         case type.to_sym
           when :post
@@ -103,6 +104,10 @@ module BmapLbs
         hash = JSON.parse(res.body)
         Rails.logger.info hash.inspect
       rescue Exception => e
+        if retry_times < Configure.retry_times||3
+          retry_times += 1
+          retry
+        end
         if Configure.exception_handle.present?
           e.instance_eval(&Configure.exception_handle)
         else
